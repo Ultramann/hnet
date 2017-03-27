@@ -36,7 +36,7 @@ test-suite test
   type:                exitcode-stdio-1.0
   main-is:             Tests.hs 
   hs-source-dirs:      tests
-  build-depends:       base,
+  build-depends:       base
                      , hnet
                      , hspec
                      , ad
