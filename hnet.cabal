@@ -27,3 +27,7 @@ test-suite test
   hs-source-dirs:      tests
   build-depends:       base,
                      , hnet
+                     , hspec
+                     , ad
+                     , hmatrix
+                     , reflection
