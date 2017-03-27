@@ -20,6 +20,17 @@ library
                      , reflection
   exposed-modules:     Neural.Matrix
 
+executable mnist
+  default-language:    Haskell2010 
+  ghc-options:         -Wall
+  hs-source-dirs:      examples
+  main-is:             Mnist.hs
+  build-depends:       base >= 4.7 && < 5
+                     , hnet
+                     , zlib
+                     , hmatrix
+                     , bytestring
+
 test-suite test
   default-language:    Haskell2010
   type:                exitcode-stdio-1.0
