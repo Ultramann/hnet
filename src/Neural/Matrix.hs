@@ -2,8 +2,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Neural.Matrix(
-    initNet, updateNet, feedLayer, forwardPass, chain, backProp,
-    relu, softmax, categoricalCrossEntropy
+    initNet, updateNet, feedLayer, forwardPass, propagate,
+    backPropagate, relu, softmax, categoricalCrossEntropy
 ) where
 
 import Control.Monad (zipWithM)
@@ -38,10 +38,6 @@ relu' = map f
   where f x | x < 0     = 0
             | otherwise = 1
 
-reluCost :: RealFloat a => [a] -> [a] -> a
-reluCost ys = (*0.5) . sum . map (^2) . zipWith (-) ys . relu
-  where relu = map $ max 0
-
 categoricalCrossEntropy :: RealFloat a => [a] -> [a] -> a
 categoricalCrossEntropy ys = negate . sum . zipWith (*) ys . map log . softmax
 
@@ -49,31 +45,30 @@ softmax :: RealFloat a => [a] -> [a]
 softmax ts = let exps = exp <$> ts in map (/ sum exps) exps
 
 feedLayer :: (Vector R, Vector R) -> Layer -> (Vector R, Vector R)
-feedLayer (_, ins) (act, bs, ws) =  (id &&& fromList . act . toList) $ bs + ins <# ws
+feedLayer (_, an) (aF, bs, ws) = (id &&& fromList . aF . toList) $ bs + an <# ws
 
 forwardPass :: Vector R -> [Layer] -> [(Vector R, Vector R)]
 forwardPass = scanl' feedLayer . (id &&& id)
 
-chain :: (Vector R, Matrix R) -> Vector R -> Vector R
-chain (transLayer, layerWeights) err = chainError * dTransLayer
-  where chainError  = err <# tr layerWeights
-        dTransLayer = fromList . relu' . toList $ transLayer
+propagate :: (Vector R, Matrix R) -> Vector R -> Vector R
+propagate (zn, wn) dldn = wn #> dldn * dadz
+  where dadz = fromList . relu' . toList $ zn
 
-backProp :: Vector R -> [Vector R] -> [Matrix R] -> [Vector R]
-backProp e tls lws = tail $ scanr chain e $ zip tls lws
+backPropagate :: Vector R -> [Vector R] -> [Matrix R] -> [Vector R]
+backPropagate dldL tls lws = tail $ scanr propagate dldL $ zip tls lws
 
 updateLayer :: R -> (Vector R, Vector R, Layer) -> Layer
-updateLayer s (a, e, (actF, bs, ws)) = (actF, newBiases, newWeights)
-  where newWeights = ws - scalar s * outer a e
-        newBiases  = bs - scalar s * e
+updateLayer s (a, e, (aF, bs, ws)) = (aF, newBs, newWs)
+  where newWs = ws - scalar s * outer a e
+        newBs = bs - scalar s * e
 
 updateNet :: (forall a. Reifies a Tape => [Reverse a R]
                                        -> [Reverse a R]
                                        -> Reverse a R) ->
              R -> Vector R -> Vector R -> [Layer] -> [Layer]
-updateNet c s xs ys ls = map (updateLayer s) $ zip3 (init as) es ls
-  where fps = forwardPass xs ls
-        as  = snd <$> fps
-        ps  = auto <$> (toList . last) as
-        e1  = fromList $ grad (c (auto <$> (toList ys))) ps
-        es  = backProp e1 (fst <$> init fps) (weights <$> ls)
+updateNet c s xs ys ls = map (updateLayer s) $ zip3 (init ans) dls ls
+  where fps  = forwardPass xs ls
+        ans  = snd <$> fps
+        yhat = auto <$> (toList . last) ans
+        dldL = fromList $ grad (c (auto <$> (toList ys))) yhat
+        dls  = backPropagate dldL (fst <$> init fps) (weights <$> ls)
