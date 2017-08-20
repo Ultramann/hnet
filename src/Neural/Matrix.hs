@@ -33,8 +33,8 @@ data Dense = Dense { biases  :: Vector R
                    , weights :: Matrix R }
 
 instance Differentiable Dense where
-  feedForward  Dense {..} = (biases +) . (weights #>)
-  passBackward Dense {..} = (<# weights)
+  feedForward  Dense {..} = (biases +) . (<# weights)
+  passBackward Dense {..} = (weights #>)
 
 data Network = Network { denses      :: [Dense]
                        , activations :: [Activation] }
