@@ -1,5 +1,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Neural.Matrix (
     initNet, updateNet, feedLayer, forwardPass, propagate,
@@ -15,34 +16,32 @@ import Numeric.AD.Internal.Reverse (Reverse, Tape)
 import Data.Reflection (Reifies)
 import Numeric.LinearAlgebra
 
-type Biases = Vector R
-type Weights = Matrix R
-type Activation = [R] -> [R]
-data Layer = Layer { activation :: Activation
-                   , biases     :: Biases
-                   , weights    :: Weights }
-type Network = [Layer]
+newtype Activation = Activation { activate :: Vector R -> Vector R }
+data FullyConnected = FullyConnected { biases  :: Vector R
+                                     , weights :: Weights R }
+type Network = Networkable a => [a]
 
 class Networkable f where
-  feedForward :: f -> [R] -> [R]
+  feedForward :: f -> Vector R -> Vector R
 
-data ActivationData = ActivationData (R -> R)
+instance Networkable Activation where
+  feedForward a = activate
 
-instance Networkable ActivationData where
-  feedForward (ActivationData a) = map a
+instance Networkable FullyConnected where
+  feedForward FullyConnected {..} = (biases +) . (weights #>)
 
-parameters :: Layer -> (Biases, Weights)
-parameters = biases &&& weights
+--parameters :: Layer -> (Biases, Weights)
+--parameters = biases &&& weights
 
 initNet :: R -> [Int] -> [Activation] -> IO Network
-initNet b szs@(_:lns) acts = layer <$> zipWithM randn szs lns
-  where layer = zipWith3 Layer acts $ vector . flip replicate b <$> lns
+initNet b szs@(_:lns) as = concat $ transpose [fcs, as]
+  where fcs = zipWith FullyConnected (vector . flip replicate b <$> lns) (zipWithM randn szs lns)
 
 relu :: Activation
-relu = map $ max 0
+relu = cmap $ max 0
 
 relu' :: Activation
-relu' = map f
+relu' = cmap f
   where f x | x < 0     = 0
             | otherwise = 1
 
