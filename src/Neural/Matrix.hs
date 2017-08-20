@@ -3,12 +3,12 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Neural.Matrix (
-    initNet, updateNet, feedLayer, forwardPass, propagate,
+    initNet, updateNet, forwardPass,
     backPropagate, relu, softmax, categoricalCrossEntropy
 ) where
 
 import Control.Monad (zipWithM)
-import Data.List (foldl', scanl', transpose)
+import Data.List (scanl')
 import Control.Arrow ((&&&))
 import Numeric.AD (grad)
 import Numeric.AD.Mode (auto)
@@ -16,67 +16,65 @@ import Numeric.AD.Internal.Reverse (Reverse, Tape)
 import Data.Reflection (Reifies)
 import Numeric.LinearAlgebra
 
-newtype Activation = Activation { activate :: Vector R -> Vector R }
-data FullyConnected = FullyConnected { biases  :: Vector R
-                                     , weights :: Weights R }
-type Network = Networkable a => [a]
+type Gradient = Vector R
 
-class Networkable f where
-  feedForward :: f -> Vector R -> Vector R
+class Differentiable d where
+  feedForward  :: d -> Vector R -> Vector R
+  passBackward :: d -> Gradient -> Gradient
 
-instance Networkable Activation where
-  feedForward a = activate
+data Activation = Activation { activate :: Vector R -> Vector R 
+                             , derive   :: Vector R -> Vector R }
 
-instance Networkable FullyConnected where
-  feedForward FullyConnected {..} = (biases +) . (weights #>)
+instance Differentiable Activation where
+  feedForward  = activate
+  passBackward = derive
 
---parameters :: Layer -> (Biases, Weights)
---parameters = biases &&& weights
+data Dense = Dense { biases  :: Vector R
+                   , weights :: Matrix R }
+
+instance Differentiable Dense where
+  feedForward  Dense {..} = (biases +) . (weights #>)
+  passBackward Dense {..} = (<# weights)
+
+data Network = Network { denses      :: [Dense]
+                       , activations :: [Activation] }
 
 initNet :: R -> [Int] -> [Activation] -> IO Network
-initNet b szs@(_:lns) as = concat $ transpose [fcs, as]
-  where fcs = zipWith FullyConnected (vector . flip replicate b <$> lns) (zipWithM randn szs lns)
+initNet b szs@(_:lns) as = do 
+      ws <- zipWithM randn szs lns 
+      let bs = vector . flip replicate b <$> lns
+          ds = zipWith Dense bs ws
+      return $ Network { denses = ds, activations = as }
 
 relu :: Activation
-relu = cmap $ max 0
-
-relu' :: Activation
-relu' = cmap f
-  where f x | x < 0     = 0
-            | otherwise = 1
+relu = Activation { activate = cmap $ max 0
+                  , derive = let f x = if x < 0 then 0 else 1 in cmap f }
 
 categoricalCrossEntropy :: RealFloat a => [a] -> [a] -> a
 categoricalCrossEntropy ys = negate . sum . zipWith (*) ys . map log . softmax
 
 softmax :: RealFloat a => [a] -> [a]
-softmax ts = map (/ sum exps) exps
-  where exps = exp <$> ts
+softmax ts = let exps = exp <$> ts in map (/ sum exps) exps
 
-feedLayer :: (Vector R, Vector R) -> Layer -> (Vector R, Vector R)
-feedLayer (_, an) (Layer aF bs ws) = (id &&& fromList . aF . toList) $ bs + an <# ws
+forwardPass :: Vector R -> Network -> [Vector R]
+forwardPass xs Network {..} = scanl' feedLayer xs $ zip denses activations
+  where feedLayer t (d, a) = feedForward a $ feedForward d t
 
-forwardPass :: Vector R -> [Layer] -> [(Vector R, Vector R)]
-forwardPass = scanl' feedLayer . (id &&& id)
+backPropagate :: Gradient -> Network -> [Vector R]
+backPropagate dldL Network {..} = scanr propThruLayer dldL $ zip denses activations
+  where propThruLayer (d, a) dldz = passBackward d $ passBackward a dldz
 
-propagate :: (Vector R, Matrix R) -> Vector R -> Vector R
-propagate (zn, wn) dldn = wn #> dldn * dadz
-  where dadz = fromList . relu' . toList $ zn
-
-backPropagate :: Vector R -> [Vector R] -> [Matrix R] -> [Vector R]
-backPropagate dldL tls lws = tail $ scanr propagate dldL $ zip tls lws
-
-updateLayer :: R -> (Vector R, Vector R, Layer) -> Layer
-updateLayer s (a, e, (Layer aF bs ws)) = Layer aF newBs newWs
-  where newWs = ws - scalar s * outer a e
-        newBs = bs - scalar s * e
+update :: R -> (Dense, (Gradient, Vector R)) -> Dense
+update s (Dense {..}, (dldn, anp)) = Dense newBiases newWeights 
+  where newBiases = biases - scalar s * dldn
+        newWeights = weights - scalar s * outer anp dldn
 
 updateNet :: (forall a. Reifies a Tape => [Reverse a R]
                                        -> [Reverse a R]
                                        -> Reverse a R) ->
              R -> Vector R -> Vector R -> Network -> Network
-updateNet c s xs ys ls = map (updateLayer s) $ zip3 (init ans) dls ls
-  where fps  = forwardPass xs ls
-        ans  = snd <$> fps
-        yHat = auto <$> (toList . last) ans
-        dldL = fromList $ grad (c (auto <$> (toList ys))) yHat
-        dls  = backPropagate dldL (fst <$> init fps) (weights <$> ls)
+updateNet c s xs ys net = net { denses = update s <$> zip (denses net) (zip dldns as) }
+  where (as,a) = (init &&& last) $ forwardPass xs net
+        yHat   = map auto . toList $ a
+        dldL   = fromList $ grad (c (auto <$> (toList ys))) yHat
+        dldns  = backPropagate dldL net
