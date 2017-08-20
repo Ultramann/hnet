@@ -18,17 +18,25 @@ import Numeric.LinearAlgebra
 type Biases = Vector R
 type Weights = Matrix R
 type Activation = [R] -> [R]
-type Layer = (Activation, Biases, Weights)
+data Layer = Layer { activation :: Activation
+                   , biases     :: Biases
+                   , weights    :: Weights }
+type Network = [Layer]
+
+class Networkable f where
+  feedForward :: f -> [R] -> [R]
+
+data ActivationData = ActivationData (R -> R)
+
+instance Networkable ActivationData where
+  feedForward (ActivationData a) = map a
 
 parameters :: Layer -> (Biases, Weights)
-parameters (_, bs, ws) = (bs, ws)
+parameters = biases &&& weights
 
-weights :: Layer -> Weights
-weights (_, _, ws) = ws
-
-initNet :: R -> [Int] -> [Activation] -> IO [Layer]
+initNet :: R -> [Int] -> [Activation] -> IO Network
 initNet b szs@(_:lns) acts = layer <$> zipWithM randn szs lns
-  where layer = zip3 acts $ vector . flip replicate b <$> lns
+  where layer = zipWith3 Layer acts $ vector . flip replicate b <$> lns
 
 relu :: Activation
 relu = map $ max 0
@@ -46,7 +54,7 @@ softmax ts = map (/ sum exps) exps
   where exps = exp <$> ts
 
 feedLayer :: (Vector R, Vector R) -> Layer -> (Vector R, Vector R)
-feedLayer (_, an) (aF, bs, ws) = (id &&& fromList . aF . toList) $ bs + an <# ws
+feedLayer (_, an) (Layer aF bs ws) = (id &&& fromList . aF . toList) $ bs + an <# ws
 
 forwardPass :: Vector R -> [Layer] -> [(Vector R, Vector R)]
 forwardPass = scanl' feedLayer . (id &&& id)
