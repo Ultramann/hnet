@@ -1,7 +1,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module Neural.Matrix(
+module Neural.Matrix (
     initNet, updateNet, feedLayer, forwardPass, propagate,
     backPropagate, relu, softmax, categoricalCrossEntropy
 ) where
@@ -42,7 +42,8 @@ categoricalCrossEntropy :: RealFloat a => [a] -> [a] -> a
 categoricalCrossEntropy ys = negate . sum . zipWith (*) ys . map log . softmax
 
 softmax :: RealFloat a => [a] -> [a]
-softmax ts = let exps = exp <$> ts in map (/ sum exps) exps
+softmax ts = map (/ sum exps) exps
+  where exps = exp <$> ts
 
 feedLayer :: (Vector R, Vector R) -> Layer -> (Vector R, Vector R)
 feedLayer (_, an) (aF, bs, ws) = (id &&& fromList . aF . toList) $ bs + an <# ws
@@ -58,17 +59,17 @@ backPropagate :: Vector R -> [Vector R] -> [Matrix R] -> [Vector R]
 backPropagate dldL tls lws = tail $ scanr propagate dldL $ zip tls lws
 
 updateLayer :: R -> (Vector R, Vector R, Layer) -> Layer
-updateLayer s (a, e, (aF, bs, ws)) = (aF, newBs, newWs)
+updateLayer s (a, e, (Layer aF bs ws)) = Layer aF newBs newWs
   where newWs = ws - scalar s * outer a e
         newBs = bs - scalar s * e
 
 updateNet :: (forall a. Reifies a Tape => [Reverse a R]
                                        -> [Reverse a R]
                                        -> Reverse a R) ->
-             R -> Vector R -> Vector R -> [Layer] -> [Layer]
+             R -> Vector R -> Vector R -> Network -> Network
 updateNet c s xs ys ls = map (updateLayer s) $ zip3 (init ans) dls ls
   where fps  = forwardPass xs ls
         ans  = snd <$> fps
-        yhat = auto <$> (toList . last) ans
-        dldL = fromList $ grad (c (auto <$> (toList ys))) yhat
+        yHat = auto <$> (toList . last) ans
+        dldL = fromList $ grad (c (auto <$> (toList ys))) yHat
         dls  = backPropagate dldL (fst <$> init fps) (weights <$> ls)
