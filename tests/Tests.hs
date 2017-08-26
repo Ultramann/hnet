@@ -5,27 +5,70 @@ import Numeric.LinearAlgebra
 import Test.Hspec
 
 {- Simple Net
-   1
-      [3, 2, -2] -> 1  |-1.5| = -0.5 -> 0                 bias
-   2                    bias              [-2, 0.5] -> 7 | -3 | -> 4
-      [-1, 2, 3] -> 12 | +2 | =  14 -> 14
-   3
+   1                    ----     ----      ----       w2           b2       zL       aL
+      [3, 2, -2] -> 1  |-1.5| = |-0.5| -> |  0 |    -----         ----      ---      ---
+   2    --w1--          -b1-     -z1-      -a1-   [-2, 0.5] -> 7 | -3 | -> | 4 | -> | 4 |
+      [-1, 2, 3] -> 12 | +2 | = | 14 | -> | 14 |    -----         ----      ---      ---
+   3                    ----     ----      ----
 -}
 
-zeroVec = vector [0.0,0.0]
-zeroNet = [(relu, zeroVec, matrix 2 [0,0,0,0]), (relu, vector [0], matrix 1 [0,0])]
-vTest = vector [1, 2, 3]
-mTest = matrix 2 [3.0, -1.0, 2.0, 2.0, -2.0, 3.0]
-simpleNet = [(relu, vector [-1.5, 2.0], mTest), (relu, vector [-3.0], matrix 1 [-2.0, 0.5])]
+zeroVec2 = vector [0,0]
+zeroVec3 = vector [0,0,0]
+zeroD1 = Dense (matrix 3 (replicate 6 0)) zeroVec3
+zeroNet = Network [zeroD1, Dense (matrix 1 [0,0,0]) (vector [0])] [relu, relu]
+nonZeroVec2 = vector [-1.5,2]
+nonZeroVec3 = vector [1,2,3]
+simpleD1 = Dense (matrix 2 [3,-1,2,2,-2,3]) nonZeroVec2
+w2 = matrix 1 [-2,0.5]
+b2 = vector [-3]
+simpleNet = Network [simpleD1, Dense w2 b2] [relu, relu]
 
 main :: IO ()
 main = hspec $ do
-  describe "Check feed layer" $ do
-    it "passes trivial case" $ do
-      (feedLayer (zeroVec, zeroVec) (head zeroNet)) `shouldBe` (zeroVec, zeroVec)
-    it "passes simple case" $ do
-      (feedLayer (vTest, vTest) (head simpleNet)) `shouldBe` (vector [-0.5,14.0], vector [0.0,14.0])
+  describe "Check dense:" $ do
 
+    describe "feed forward:" $ do
+      it "passes zero through zero case" $ do
+        feedForward zeroD1 zeroVec2 `shouldBe` zeroVec3
+      it "passes non-zero through zero case" $ do
+        feedForward zeroD1 nonZeroVec2 `shouldBe` zeroVec3
+      it "passes zero through simple case" $ do
+        feedForward simpleD1 zeroVec3 `shouldBe` nonZeroVec2
+      it "passes simple through simple case" $ do
+        feedForward simpleD1 nonZeroVec3 `shouldBe` vector [-0.5,14]
+
+    describe "pass backward:" $ do
+      it "passes zero through zero case" $ do
+        passBackward zeroD1 zeroVec3 `shouldBe` zeroVec2
+      it "passes non-zero through zero case" $ do
+        passBackward zeroD1 nonZeroVec3 `shouldBe` zeroVec2
+      it "passes zero through simple case" $ do
+        passBackward simpleD1 zeroVec2 `shouldBe` zeroVec3
+      it "passes simple through simple case" $ do
+        passBackward simpleD1 nonZeroVec2 `shouldBe` vector [-6.5,1,9]
+
+  describe "Check relu:" $ do
+
+    describe "feed forward:" $ do
+      it "passes zero case" $ do
+        feedForward relu zeroVec2 `shouldBe` zeroVec2
+      it "passes positives case" $ do
+        feedForward relu nonZeroVec3 `shouldBe` nonZeroVec3
+      it "passes negatives case" $ do
+        feedForward relu (negate nonZeroVec3) `shouldBe` zeroVec3
+      it "passes positives & negatives case" $ do
+        feedForward relu nonZeroVec2 `shouldBe` vector [0,2]
+
+    describe "pass backward:" $ do
+      it "passes zero case" $ do
+        passBackward relu zeroVec2 `shouldBe` zeroVec2
+      it "passes positives case" $ do
+        passBackward relu nonZeroVec3 `shouldBe` vector [1,1,1]
+      it "passes negatives case" $ do
+        passBackward relu (negate nonZeroVec3) `shouldBe` zeroVec3
+      it "passes positives & negatives case" $ do
+        passBackward relu nonZeroVec2 `shouldBe` vector [0,1]
+{-
   describe "Check forward pass" $ do
     it "passes trivial case" $ do
       let zp = [(zeroVec, zeroVec), (zeroVec, zeroVec),
@@ -54,3 +97,4 @@ main = hspec $ do
       let tls = [zeroVec, vector [0]]
       let lws = map (\(_, _, x) -> x) zeroNet
       (backProp (vector [0]) tls lws) `shouldBe` tls
+-}
