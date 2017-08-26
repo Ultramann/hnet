@@ -31,13 +31,13 @@ main = do
                                     ,"t10k-images-idx3-ubyte.gz"
                                     ,"t10k-labels-idx1-ubyte.gz"]
   net <- initNet 1 [784, 30, 10] [relu, relu]
-  let n = 400
+  let n = 42
   printImage testI n
 
   let
     example = getX testI n
     randomUpdate net x = updateNet categoricalCrossEntropy 0.002 (getX trainI x) (getY trainL x) net
-    trainingNet = scanl (foldl' randomUpdate) net rapid
+    trainingNet = scanl (foldl' randomUpdate) net large
     trainedNet = last trainingNet
   forM_ trainingNet $ putStrLn . unlines . zipWith display [0..9] . softmax
-                               . toList . last . forwardPass example
+                               . toList . last . snd . forwardPass example
