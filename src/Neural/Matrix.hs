@@ -8,7 +8,7 @@ module Neural.Matrix (
 ) where
 
 import Control.Monad (zipWithM)
-import Data.List (foldl')
+import Data.List (foldl', scanl')
 import Numeric.AD (grad)
 import Numeric.AD.Mode (auto)
 import Numeric.AD.Internal.Reverse (Reverse, Tape)
@@ -56,12 +56,12 @@ softmax :: RealFloat a => [a] -> [a]
 softmax ts = let exps = exp <$> ts in map (/ sum exps) exps
 
 forwardPass :: Vector R -> Network -> ([Vector R], [Vector R])
-forwardPass xs Network {..} = foldl' feedLayer ([xs], [xs]) $ zip denses activations
-  where feedLayer (zs, as) (dn, af) = let z = feedForward dn $ head as
-                                      in (z:zs, (feedForward af z):as)
+forwardPass xs Network {..} = separate . scanl' feedLayer (xs, xs) $ zip denses activations
+  where feedLayer (_, al) (dn, af) = let z = feedForward dn al in (z, feedForward af z)
+        separate = foldr (\(z,a) (zs, as) -> (z:zs, a:as)) ([], [])
 
-backPropagate :: Gradient -> [Vector R] -> Network -> [Vector R]
-backPropagate dldL zs Network {..} = scanr propThruLayer dldL $ zip3 denses activations zs
+backPropagate :: Gradient -> Network -> [Vector R] -> [Vector R]
+backPropagate dldL Network {..} = scanr propThruLayer dldL . zip3 denses activations
   where propThruLayer (dn, af, z) dldz = passBackward dn $ dldz * passBackward af z
 
 update :: R -> (Gradient, Vector R, Dense) -> Dense
@@ -77,5 +77,5 @@ updateNet c s xs ys net = net { denses = newDenses }
   where (zs, as)  = forwardPass xs net
         yHat      = map auto . toList . last $ as
         dldL      = fromList $ grad (c (auto <$> (toList ys))) yHat
-        dldns     = tail $ backPropagate dldL (init zs) net
+        dldns     = tail $ backPropagate dldL net $ tail zs
         newDenses = update s <$> zip3 dldns (init as) (denses net)
