@@ -18,10 +18,7 @@ printImage imgs = putStrLn . unlines . take 28 . map (take 28) . iterate (drop 2
 
 display d prob = show d ++ ": " ++ show prob
 
-small = [[0..99], [100..299], [300..599], [600..999]]
-medium = [[0..299], [300..999], [1000..2199], [2200..4599]]
-large = [[0..999], [1000..2999], [3000..5999], [6000..9999]]
-rapid = [[0..299], [300..599], [600..899], [900..1199], [1200..1499], [1500..1799], [1800..2099]]
+ranges = [[0..999], [1000..2999], [3000..5999], [6000..9999]]
 
 main :: IO ()
 main = do
@@ -37,7 +34,7 @@ main = do
   let
     example = getX testI n
     randomUpdate net x = updateNet categoricalCrossEntropy 0.002 (getX trainI x) (getY trainL x) net
-    trainingNet = scanl (foldl' randomUpdate) net large
+    trainingNet = scanl (foldl' randomUpdate) net ranges
     trainedNet = last trainingNet
   forM_ trainingNet $ putStrLn . unlines . zipWith display [0..9] . softmax
                                . toList . last . snd . forwardPass example
